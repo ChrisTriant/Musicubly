@@ -11,8 +11,9 @@ public class PlayerController : MonoBehaviour
 
     #endregion
 
-    // Update is called once per frame
-    void Update()
+    #region LifeCycle
+
+    private void Update()
     {
         if (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0))
         {
@@ -20,9 +21,13 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    #endregion
+
+    #region Public Methods
+
     public void EnableCubesByIndices(int[] indices)
     {    
-        foreach(var  cube in _cubes)
+        foreach(var cube in _cubes)
         {
             cube.SetActive(false);
         }
@@ -34,6 +39,8 @@ public class PlayerController : MonoBehaviour
 
         SetRandomRotation();
     }
+
+    #endregion
 
     #region Private Methods
 

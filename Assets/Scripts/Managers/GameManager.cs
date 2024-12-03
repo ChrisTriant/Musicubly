@@ -99,11 +99,7 @@ public class GameManager : MonoBehaviour
     public void Restart()
     {        
         LoseScreenUI.SetActive(false);
-        var obstacles = FindObjectsOfType<ObstacleController>();
-        foreach(var obstacle in obstacles)
-        {
-            Destroy(obstacle.gameObject);
-        }
+        _spawner.ResetObstacles();
         
         StopCoroutine(_gameCoroutine);
         StartGame();
@@ -116,7 +112,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator SpawnObstacleWaves()
     {
         yield return new WaitForSeconds(0.4f);
-        var obstacleController = _spawner.SpawnNewObstacle().GetComponent<ObstacleController>();
+        var obstacleController = _spawner.SpawnNewObstacle();
         obstacleController.SetObstacleMoveSpeed(_obstacleSpeed);
         var disabledIndices = obstacleController.DisableRandomCubes(OnObstaclePassed);
 
@@ -130,7 +126,7 @@ public class GameManager : MonoBehaviour
         {
             if (!_isPaused)
             {                
-                obstacleController = _spawner.SpawnNewObstacle().GetComponent<ObstacleController>();
+                obstacleController = _spawner.SpawnNewObstacle();
                 obstacleController.SetObstacleMoveSpeed(_obstacleSpeed);
                 disabledIndices = obstacleController.DisableRandomCubes(OnObstaclePassed);
 

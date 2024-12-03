@@ -1,11 +1,15 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class CubeController : MonoBehaviour
 {
+    #region Fields
+
     [SerializeField] private VoidEventChannelSO _onMusicBeatEvent;
     private Animator _animator;
+
+    #endregion
+
+    #region LifeCycle
 
     private void Awake()
     {
@@ -22,11 +26,6 @@ public class CubeController : MonoBehaviour
         _onMusicBeatEvent.OnEventRaised -= BeatScaling;
     }
 
-    public void BeatScaling()
-    {
-        _animator.SetTrigger("MusicBeat");
-    }
-
     private void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("PlayerCubes"))
@@ -34,4 +33,15 @@ public class CubeController : MonoBehaviour
             GameManager.Instance.LostGame();
         }
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private void BeatScaling()
+    {
+        _animator.SetTrigger("MusicBeat");
+    }
+
+    #endregion
 }

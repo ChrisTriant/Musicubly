@@ -1,10 +1,18 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
 public class ObstacleController : MonoBehaviour
 {
+    #region Events
+
+    public event Action<ObstacleController> OnHitEnd = delegate { };
+
+    #endregion
+
     #region Fields
+
     [SerializeField] List<GameObject> _cubes;
     private float _moveSpeed = 0;
     private UnityAction _onObstaclePassCallback;
@@ -33,11 +41,11 @@ public class ObstacleController : MonoBehaviour
     {
         _onObstaclePassCallback = _onObstaclPassed;
 
-        int cubeNumber = Random.Range(1, 8);
+        int cubeNumber = UnityEngine.Random.Range(1, 8);
         List<int> cubeIndices = new List<int>();
         for(int i = 0; i < cubeNumber; i++)
         {
-            int cubeIdx = Random.Range(0, 9);
+            int cubeIdx = UnityEngine.Random.Range(0, 9);
             if (cubeIndices.Contains(cubeIdx))
             {
                 --i;
@@ -49,6 +57,14 @@ public class ObstacleController : MonoBehaviour
         return cubeIndices.ToArray();
     }
 
+    public void ResetCubes()
+    {
+        for (int i = 0; i < _cubes.Count; i++)
+        {
+            _cubes[i].SetActive(true);
+        }
+    }
+
     #endregion
 
     #region Private Methods
@@ -57,7 +73,8 @@ public class ObstacleController : MonoBehaviour
     {
         if (other.CompareTag("EndOfObstacles"))
         {
-            Destroy(gameObject);
+            OnHitEnd.Invoke(this); 
+            //Destroy(gameObject);
         }
     }
 
