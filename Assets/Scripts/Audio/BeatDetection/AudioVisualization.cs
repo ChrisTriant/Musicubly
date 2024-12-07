@@ -1,154 +1,141 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-
-/// Code taken from https://www.youtube.com/watch?v=BVhnmm1SvF0&t=13s
-
+using UnityEngine.Rendering;
+/// <summary>
+/// Creates a dynamic audio visualizer that uses Line Renderers to extend and retract based on audio spectrum data.
+/// </summary>
 [RequireComponent(typeof(AudioSource))]
-public class AudioVisualization : MonoBehaviour
+public class AudioVisualizer : MonoBehaviour
 {
     #region Fields
 
-    [SerializeField] private int _bufferSampleSize;
-    [SerializeField] private float _samplePercentage;
-    [SerializeField] private float _emphasisMultiplier;
-    [SerializeField] private float _retractionSpeed;
+    [Header("Audio Settings")]
+    [SerializeField] private AudioSource _audioSource;
+    [SerializeField] private BeatDetector _beatDetector;
+    [SerializeField] private int _spectrumResolution = 512; // Number of spectrum bands
+    [SerializeField] private float _emphasisMultiplier = 10f; // Boosts spectrum intensity
+    [SerializeField] private float _retractionSpeed = 2f; // Speed of retraction
 
-    [SerializeField] private int _amountOfSegments;
-    [SerializeField] private float _radius;
-    [SerializeField] private float _bufferSizeArea;
-    [SerializeField] private float _maximumExtendLength;
-
+    [Header("Visualizer Settings")]
+    [SerializeField] private int _numberOfSegments = 64; // Number of visualized lines
+    [SerializeField] private float _radius = 5f; // Base radius of the ring
+    [SerializeField] private float _minExtendLength = 0f; // Maximum line extension length
+    [SerializeField] private float _maxExtendLength = 3f; // Maximum line extension length
     [SerializeField] private GameObject _lineRendererPrefab;
-    [SerializeField] private Material _lineRendererMaterial;
     [SerializeField] private Transform _spawnParent;
-    public VisualizationMode _visualizationMode;
-
-    [SerializeField] private Gradient _colorGradientA = new Gradient();
-    [SerializeField] private Gradient _colorGradientB = new Gradient();
-
-    private float _sampleRate;
-
-    private float[] _samples;
-    private float[] _spectrum;
-    private float[] _extendLengths;
+    [SerializeField] private Gradient _colorGradient;
 
     private LineRenderer[] _lineRenderers;
-
-    private AudioSource _audioSource;
+    private float[] _spectrumData;
+    private float[] _lineLengths;
 
     #endregion
 
-    #region LifeCycle
+    #region Unity Methods
 
-    private void Awake()
+    private void Start()
     {
-        _audioSource = GetComponent<AudioSource>();
-        _sampleRate = AudioSettings.outputSampleRate;
-
-        _samples = new float[_bufferSampleSize];
-        _spectrum = new float[_bufferSampleSize];
-
-        switch (_visualizationMode)
-        {
-            case VisualizationMode.Ring:
-                InitializeRing();
-                break;
-        }
+        InitializeLineRenderers();
     }
 
     private void Update()
     {
-        _audioSource.GetSpectrumData(_spectrum, 1, FFTWindow.BlackmanHarris);
-
-        UpdateExtends();
-
-        if(_visualizationMode == VisualizationMode.Ring)
-        {
-            UpdateRing();
-        }    
+        UpdateSpectrum();
+        UpdateLineRenderers();
     }
 
     #endregion
 
     #region Private Methods
 
-    private void InitializeRing()
+    /// <summary>
+    /// Initializes the Line Renderers in a circular arrangement.
+    /// </summary>
+    private void InitializeLineRenderers()
     {
-        _extendLengths = new float[_amountOfSegments + 1];
-        _lineRenderers = new LineRenderer[_extendLengths.Length];
+        _lineRenderers = new LineRenderer[_numberOfSegments];
+        _lineLengths = new float[_numberOfSegments];
+        _spectrumData = new float[_spectrumResolution];
 
-        for(int i = 0; i < _lineRenderers.Length; i++)
+
+        for (int i = 0; i < _numberOfSegments; i++)
         {
-            GameObject go = Instantiate(_lineRendererPrefab, _spawnParent);
-            go.transform.position = Vector3.zero;
-
-            LineRenderer lineRenderer = go.GetComponent<LineRenderer>();
-            lineRenderer.sharedMaterial = _lineRendererMaterial;
-
+            GameObject lineObject = Instantiate(_lineRendererPrefab, _spawnParent);
+            LineRenderer lineRenderer = lineObject.GetComponent<LineRenderer>();
             lineRenderer.positionCount = 2;
             lineRenderer.useWorldSpace = true;
+
+            float t = i / (_lineRenderers.Length - 2f);
+            float angle = t * Mathf.PI * 2f;
+            Vector3 direction = new Vector3(Mathf.Cos(angle + Mathf.PI / 2), Mathf.Sin(angle + Mathf.PI / 2));
+
+            Vector3 startPosition = _spawnParent.position + direction * _radius;
+            lineRenderer.SetPosition(0, startPosition);
+            lineRenderer.SetPosition(1, startPosition + direction * _minExtendLength); // Start extended at base radius
+
+            lineRenderer.colorGradient = _colorGradient;
             _lineRenderers[i] = lineRenderer;
         }
     }
 
-    private void UpdateExtends()
+    /// <summary>
+    /// Updates the audio spectrum data.
+    /// </summary>
+    private void UpdateSpectrum()
     {
-        int iteration = 0;
-        int indexOnSpectrum = 0;
-        int averageValue = (int)(Mathf.Abs(_samples.Length * _samplePercentage) / _amountOfSegments);
-
-        if (averageValue < 1)
-        {
-            averageValue = 1;
-        }
-
-        while (iteration < _extendLengths.Length)
-        {
-            int iterationIndex = 0;
-            float sumValueY = 0;
-
-            while(iterationIndex < averageValue)
-            {
-                sumValueY += _spectrum[indexOnSpectrum];
-                indexOnSpectrum++;
-                iterationIndex++;
-            }
-
-            float y = sumValueY / averageValue * _emphasisMultiplier;
-            _extendLengths[iteration] -= _retractionSpeed * Time.deltaTime;
-            if (_extendLengths[iteration] < y) 
-            {
-                _extendLengths[iteration] = y;
-            }
-
-            if (_extendLengths[iteration] > _maximumExtendLength)
-            {
-                _extendLengths[iteration] = _maximumExtendLength;
-            }
-
-            iteration++;
-        }
+        //_audioSource.GetSpectrumData(_spectrumData, 0, FFTWindow.BlackmanHarris);
+        _spectrumData = _beatDetector.ChannelSpectrums[0];
     }
 
-    private void UpdateRing()
+    /// <summary>
+    /// Updates each Line Renderer to extend and retract based on spectrum data.
+    /// </summary>
+    private void UpdateLineRenderers()
     {
-        for(int i = 0; i < _lineRenderers.Length; i++)
+        return;
+        int spectrumStep = Mathf.Max(1, _spectrumResolution / _numberOfSegments);
+
+        for (int i = 0; i < _numberOfSegments; i++)
         {
-            float t = i / (_lineRenderers.Length - 2f);
-            float a = t * Mathf.PI * 2f;
+            // Average a range of spectrum bands for smoother visuals
+            float averageSpectrum = 0f;
+            for (int j = 0; j < spectrumStep; j++)
+            {
+                int index = i * spectrumStep + j;
+                if (index < _spectrumResolution)
+                    averageSpectrum += _spectrumData[index];
+            }
+            averageSpectrum /= spectrumStep;
 
-            Vector3 direction = new Vector3(Mathf.Cos(a), Mathf.Sin(a));
-            float maximumRadius = (_radius + _bufferSizeArea + _extendLengths[i] * 10000);
+            // Compute target length based on spectrum value
+            float targetLength = averageSpectrum * _emphasisMultiplier;
 
-            _lineRenderers[i].SetPosition(0, _spawnParent.position + direction * _radius);
-            _lineRenderers[i].SetPosition(1, _spawnParent.position + direction * maximumRadius);
+            // Smoothly retract if target is lower than current length
+            _lineLengths[i] = Mathf.Max(0, Mathf.Lerp(_lineLengths[i], targetLength, Time.deltaTime * _retractionSpeed));
+            _lineLengths[i] = Mathf.Clamp(_lineLengths[i], 0, _maxExtendLength);
 
-            _lineRenderers[i].startWidth = Spacing(_radius);
-            _lineRenderers[i].endWidth = Spacing(maximumRadius);
+            // Update Line Renderer positions
+            LineRenderer lineRenderer = _lineRenderers[i];
+            Vector3 startPosition = lineRenderer.GetPosition(0);
+            Vector3 direction = (lineRenderer.GetPosition(1) - startPosition).normalized;
+            //float t = i / (_lineRenderers.Length - 2f);
+            //float a = t * Mathf.PI * 2f;
+            //Vector3 direction = new Vector3(Mathf.Cos(a + Mathf.PI / 2), Mathf.Sin(a + Mathf.PI / 2));
+            var extendOffset = _radius + _minExtendLength + _lineLengths[i];
+            Vector3 endPosition = _spawnParent.position + direction * extendOffset;
 
-            _lineRenderers[i].startColor = _colorGradientA.Evaluate(0);
-            _lineRenderers[i].endColor = _colorGradientA.Evaluate((_extendLengths[i] * 10000 - 1) / (_maximumExtendLength - 1f));
+            lineRenderer.SetPosition(1, endPosition);
+
+            float startWidth = Spacing(_radius); // Cache spacing outside the loop if possible
+            float endWidth = extendOffset;
+
+            lineRenderer.startWidth = startWidth;
+            lineRenderer.endWidth = Spacing(endWidth);
+
+            // Adjust gradient color based on extension
+            float colorT = _lineLengths[i] / _maxExtendLength;
+            GradientColorKey[] colorKeys = _colorGradient.colorKeys;
+            lineRenderer.startColor = colorKeys[0].color;
+            lineRenderer.endColor = _colorGradient.Evaluate(colorT);
         }
     }
 
@@ -161,15 +148,4 @@ public class AudioVisualization : MonoBehaviour
     }
 
     #endregion
-
-    #region Nested Types
-
-    public enum VisualizationMode
-    {
-        Ring, 
-        RingWithBeat
-    }
-
-    #endregion
-
 }

@@ -28,6 +28,7 @@ public class ObstacleSpawner : MonoBehaviour
     public ObstacleController SpawnNewObstacle()
     {
         var obstacleController = _availableObstacleControllers.Dequeue();
+        obstacleController.ResetCubes();
         obstacleController.transform.SetPositionAndRotation(_spawnPoint, Quaternion.identity);
         obstacleController.gameObject.SetActive(true);
         return obstacleController;

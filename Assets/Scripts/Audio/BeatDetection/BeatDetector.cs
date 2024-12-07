@@ -1,180 +1,235 @@
-﻿using System.Collections;
-using System.Linq;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
-public class BeatDetector : MonoBehaviour {
+public class BeatDetector : MonoBehaviour
+{
+    #region Events
 
-    public AudioSource  audioSource;            // 
-    public AudioClip    startingAudioClip;
-                                                                                                 
-    public int          bassLowerLimit = 60;    // 
-    public int          bassUpperLimit = 180;   // 
-    public int          lowLowerLimit = 500;    // 
-    public int          lowUpperLimit = 2000;   //                                                
-
-    float[]             freqSpectrum = new float[4];
-    float[]             freqAvgSpectrum = new float[4];
-
-    public bool         bass, low;
-
-    Deque<List<float>>  FFTHistory_beatDetector = new Deque<List<float>>();
-
-    int                 FFTHistory_maxSize;
-    List<int>           beatDetector_bandLimits = new List<int>();
     [SerializeField] private VoidEventChannelSO _onBeat;
+    [SerializeField] private AudioClipEventChannelSO _onClipChanged;
 
-    void Awake() {
-        // initialize
-        if(!audioSource.clip)
-            audioSource.clip = startingAudioClip;
+    #endregion
 
-        audioSource.Play();
-        int bandsize = audioSource.clip.frequency / 1024; // bandsize = (samplingFrequency / windowSize)
+    #region Fields
 
-        FFTHistory_maxSize = audioSource.clip.frequency / 1024;
+    [SerializeField] private AudioSource _audioSource;
+    [SerializeField] private int _bassLowerLimit = 60;
+    [SerializeField] private int _bassUpperLimit = 180;
+    [SerializeField] private int _lowLowerLimit = 500;
+    [SerializeField] private int _lowUpperLimit = 2000;
+    [SerializeField] private int _spectrumSampleSize;
+    [SerializeField]
+    private FFTWindow FFTWindowType = FFTWindow.Blackman;
 
-        beatDetector_bandLimits.Clear();
+    private float[][] _channelSpectrums;
 
-        //bass 60hz-180hz
-        beatDetector_bandLimits.Add(bassLowerLimit / bandsize);
-        beatDetector_bandLimits.Add(bassUpperLimit / bandsize);
-        //low midrange 500hz-2000hz
-        beatDetector_bandLimits.Add(lowLowerLimit / bandsize);
-        beatDetector_bandLimits.Add(lowUpperLimit / bandsize);
+    private float[] _freqSpectrum = new float[4];
+    private float[] _avgSpectrum = new float[4];
 
-        beatDetector_bandLimits.TrimExcess();
-        FFTHistory_beatDetector.Clear();
+    private bool _bass;
+    private bool _low;
+
+    private Deque<List<float>> _fftHistory = new Deque<List<float>>();
+    private int _fftHistoryMaxSize;
+
+    private List<int> _bandLimits = new List<int>();
+
+    private bool _prevBass;
+    private bool _prevLow;
+
+    #endregion
+
+    #region Properties
+
+    public float[][] ChannelSpectrums => _channelSpectrums;
+    public int SpectrumSampleSize => _spectrumSampleSize;
+
+    #endregion
+
+    #region LifeCycle
+
+    private void Awake()
+    {
+        BindEvents();
     }
 
-    // Update is called once per frame
-    void Update() {
+    private void OnDestroy()
+    {
+        UnbindEvents();
+    }
 
+    private void Update()
+    {
+        // Detect beats in the current audio sample
+        DetectBeats(ref _freqSpectrum, ref _avgSpectrum, ref _bass, ref _low);
+    }
 
-        // stop music by pressing S
-        if (Input.GetKeyDown(KeyCode.S)) {
-            audioSource.Stop();
+    private void LateUpdate()
+    {
+        // Trigger events or actions based on detected beats
+        HandleBeatEvents();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private void BindEvents()
+    {
+        _onClipChanged.OnEventRaised += ChangeAudioClip;
+    }
+
+    private void UnbindEvents()
+    {
+        _onClipChanged.OnEventRaised -= ChangeAudioClip;
+    }
+
+    private void ChangeAudioClip(AudioClip newClip)
+    {
+        if (newClip == null)
+        {
+            Debug.LogWarning("Attempted to set a null audio clip.");
+            return;
         }
 
-        // Check if current sample are above statistical threshold
-        GetBeat(ref freqSpectrum, ref freqAvgSpectrum, ref bass, ref low);
+        // Reinitialize band limits and FFT history for the new audio clip.
+        InitializeBandLimits();
     }
 
-    private void LateUpdate() {
-        // change color of cubes based on booleans
-        if (bass) {
-            
-        }
+    private void InitializeBandLimits()
+    {
+        _channelSpectrums = new float[_audioSource.clip.channels][];
+        for(int i = 0; i < _channelSpectrums.Length; i++)
+            _channelSpectrums[i] = new float[_spectrumSampleSize];
 
-        
-        if (low) {
-            _onBeat.RaiseEvent();           
-        } 
+        int bandSize = _audioSource.clip.frequency / 1024;
+        _fftHistoryMaxSize = _audioSource.clip.frequency / 1024;
+
+        _bandLimits.Clear();
+
+        // Bass 60Hz–180Hz
+        _bandLimits.Add(_bassLowerLimit / bandSize);
+        _bandLimits.Add(_bassUpperLimit / bandSize);
+
+        // Low-midrange 500Hz–2000Hz
+        _bandLimits.Add(_lowLowerLimit / bandSize);
+        _bandLimits.Add(_lowUpperLimit / bandSize);
+
+        _bandLimits.TrimExcess();
+        _fftHistory.Clear();
     }
 
-    /// <summary>
-    /// A function to set the booleans for beats by comparing current audio sample with statistical values of previous one's
-    /// </summary>
-    /// <param name="spectrum">reference to the array containing current samples and amplitudes</param>
-    /// <param name="avgSpectrum">reference to the array containing average values for the sample amplitudes</param>
-    /// <param name="isBass">bool to check if current value is higher than average for bass frequencies</param>
-    /// <param name="isLow">bool to check if current value is higher than average for low-mid frequencies</param>
-    void GetBeat (ref float[] spectrum, ref float[] avgSpectrum, ref bool isBass, ref bool isLow) {
+    private void DetectBeats(ref float[] spectrum, ref float[] avgSpectrum, ref bool isBass, ref bool isLow)
+    {
+        int numBands = 2; // bass and low
+        int numChannels = _audioSource.clip.channels;
 
-        int numBands = 2; //beatDetector_bandLimits.size() / 2 
-        int numChannels = audioSource.clip.channels;
-        for (int numBand = 0; numBand < numBands; ++numBand) {
-            for (int indexFFT = beatDetector_bandLimits[numBand]; indexFFT < beatDetector_bandLimits[numBand + 1]; ++indexFFT) {
-                for (int channel = 0; channel < numChannels; ++channel) {
-                    float[] tempSample = new float[1024];
-                    audioSource.GetSpectrumData(tempSample, channel, FFTWindow.Rectangular);
-                    spectrum[numBand] += tempSample[indexFFT];
+
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            _audioSource.GetSpectrumData(_channelSpectrums[channel], channel, FFTWindowType);
+
+            for (int numBand = 0; numBand < numBands; ++numBand)
+            {
+                for (int indexFFT = _bandLimits[numBand]; indexFFT < _bandLimits[numBand + 1]; ++indexFFT)
+                {
+                    spectrum[numBand] += _channelSpectrums[channel][indexFFT];
                 }
+                spectrum[numBand] /= (_bandLimits[numBand + 1] - _bandLimits[numBand]);
             }
-            spectrum[numBand] /= (beatDetector_bandLimits[numBand + 1] - beatDetector_bandLimits[numBand] * numBand);
         }
-        if (FFTHistory_beatDetector.Count > 0) {
-            FillAvgSpectrum(ref avgSpectrum, numBands, ref FFTHistory_beatDetector);
+
+        spectrum[0] /= numChannels; // Average across channels
+        spectrum[1] /= numChannels;
+
+        if (_fftHistory.Count > 0)
+        {
+            CalculateAvgSpectrum(ref avgSpectrum, numBands, ref _fftHistory);
 
             float[] varianceSpectrum = new float[numBands];
+            CalculateVarianceSpectrum(ref varianceSpectrum, numBands, ref _fftHistory, ref avgSpectrum);
 
-            FillVarianceSpectrum(ref varianceSpectrum, numBands, ref FFTHistory_beatDetector, ref avgSpectrum);
-            isBass = (spectrum[0]) > BeatThreshold(varianceSpectrum[0]) * avgSpectrum[0];
-            isLow = (spectrum[1]) > BeatThreshold(varianceSpectrum[1]) * avgSpectrum[1];
+            isBass = spectrum[0] > BeatThreshold(varianceSpectrum[0]) * avgSpectrum[0];
+            isLow = spectrum[1] > BeatThreshold(varianceSpectrum[1]) * avgSpectrum[1];
         }
 
-        List<float> fftResult = new List<float>(numBands);
-
-        for (int index = 0; index < numBands; ++index) {
-            fftResult.Add(spectrum[index]);
-        }
-
-        if (FFTHistory_beatDetector.Count >= FFTHistory_maxSize) {
-            FFTHistory_beatDetector.RemoveFront();
-        }
-        FFTHistory_beatDetector.AddBack(fftResult);
+        AddSpectrumToHistory(spectrum, numBands);
     }
 
-    /// <summary>
-    /// Function to add average values to the array
-    /// </summary>
-    /// <param name="avgSpectrum"></param>
-    /// <param name="numBands"></param>
-    /// <param name="fftHistory"></param>
-    void FillAvgSpectrum(ref float[] avgSpectrum, int numBands, ref Deque<List<float>> fftHistory) {
-        foreach (List<float> iterator in fftHistory) {
-            List<float> fftResult = iterator;
-
-            for (int index = 0; index < fftResult.Count; ++index) {
+    private void CalculateAvgSpectrum(ref float[] avgSpectrum, int numBands, ref Deque<List<float>> fftHistory)
+    {
+        foreach (List<float> fftResult in fftHistory)
+        {
+            for (int index = 0; index < fftResult.Count; ++index)
+            {
                 avgSpectrum[index] += fftResult[index];
             }
         }
 
-        for (int index = 0; index < numBands; ++index) {
-            avgSpectrum[index] /= (fftHistory.Count);
+        for (int index = 0; index < numBands; ++index)
+        {
+            avgSpectrum[index] /= fftHistory.Count;
         }
     }
 
-    /// <summary>
-    /// Function to add variance values to the array
-    /// </summary>
-    /// <param name="varianceSpectrum"></param>
-    /// <param name="numBands"></param>
-    /// <param name="fftHistory"></param>
-    /// <param name="avgSpectrum"></param>
-    void FillVarianceSpectrum(ref float[] varianceSpectrum, int numBands, ref Deque<List<float>> fftHistory, ref float[] avgSpectrum) {
-        foreach (List<float> iterator in fftHistory) {
-            List<float> fftResult = iterator;
+    private void CalculateVarianceSpectrum(ref float[] varianceSpectrum, int numBands, ref Deque<List<float>> fftHistory, ref float[] avgSpectrum)
+    {
+        // Ensure varianceSpectrum is correctly sized
+        if (varianceSpectrum.Length != numBands)
+        {
+            varianceSpectrum = new float[numBands];
+        }
 
-            for (int index = 0; index < fftResult.Count; ++index) {
-                //Debug.Log("fftresult val is - " + fftResult[index]);
-                varianceSpectrum[index] += (fftResult[index] - avgSpectrum[index]) * (fftResult[index] - avgSpectrum[index]);
+        foreach (List<float> fftResult in fftHistory)
+        {
+            for (int index = 0; index < numBands; ++index)
+            {
+                if (index < fftResult.Count) // Ensure index is within bounds
+                {
+                    float difference = fftResult[index] - avgSpectrum[index];
+                    varianceSpectrum[index] += difference * difference;
+                }
             }
         }
 
-        for (int index = 0; index < numBands; ++index) {
-            varianceSpectrum[index] /= (fftHistory.Count);
+        for (int index = 0; index < numBands; ++index)
+        {
+            varianceSpectrum[index] /= fftHistory.Count;
         }
     }
 
-    /// <summary>
-    /// Function to get the threshold value for the sample
-    /// </summary>
-    /// <param name="variance">variance for the sample</param>
-    /// <returns>float threshold</returns>
-    float BeatThreshold(float variance) {
+    private float BeatThreshold(float variance)
+    {
         return -15f * variance + 1.55f;
     }
 
-    /// <summary>
-    /// Function to change audio clip based on UI buttons in the scene
-    /// </summary>
-    /// <param name="clip">the clip to play</param>
-    public void ChangeClip(AudioClip clip) {
-        if (audioSource.isPlaying) {
-            audioSource.Pause();
+    private void AddSpectrumToHistory(float[] spectrum, int numBands)
+    {
+        List<float> fftResult = new List<float>(spectrum);
+
+        if (_fftHistory.Count >= _fftHistoryMaxSize)
+        {
+            _fftHistory.RemoveFront();
         }
-        audioSource.clip = clip;
-        audioSource.Play();
+
+        _fftHistory.AddBack(fftResult);
     }
+
+    private void HandleBeatEvents()
+    {
+        if (_bass && !_prevBass)
+        {
+            // Add bass-specific actions here
+        }
+
+        if (_low && !_prevLow)
+        {
+            _onBeat.RaiseEvent();
+        }
+
+        _prevBass = _bass;
+        _prevLow = _low;
+    }
+
+    #endregion
 }

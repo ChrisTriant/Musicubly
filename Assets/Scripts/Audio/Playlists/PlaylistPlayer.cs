@@ -4,6 +4,12 @@ using UnityEngine;
 
 public class PlaylistPlayer : MonoBehaviour
 {
+    #region Events
+
+    [SerializeField] private AudioClipEventChannelSO _onClipChanged;
+
+    #endregion
+
     #region Fields
 
     [SerializeField] private PlaylistSO _playlist;
@@ -71,7 +77,6 @@ public class PlaylistPlayer : MonoBehaviour
         }
 
         _trackIndex = -1;
-        _audioSource.clip = _playlist.Songs[0];
     }
 
     private IEnumerator PlayNextClip()
@@ -96,6 +101,8 @@ public class PlaylistPlayer : MonoBehaviour
             return;
         }
         _audioSource.clip = _playlist.Songs[index];
+        _onClipChanged.RaiseEvent(_playlist.Songs[index]);
+
         // Calculate when the clip will finish
         _clipEndTime = Time.time + _audioSource.clip.length;
 
