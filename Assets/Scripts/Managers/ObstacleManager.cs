@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class ObstacleSpawner : MonoBehaviour
+public class ObstacleManager : MonoBehaviour
 {
     #region Fields
 
@@ -44,6 +44,22 @@ public class ObstacleSpawner : MonoBehaviour
             controller.ResetCubes();
             controller.gameObject.SetActive(false);
             _availableObstacleControllers.Enqueue(controller);
+        }
+    }
+
+    public void FreezeObstacles()
+    {
+        foreach (var controller in _totalObstacleControllers)
+        {
+            controller.SetObstacleMoveSpeed(0);
+        }
+    }
+
+    public void SetObstacleSpeed(float speed)
+    {
+        foreach (var controller in _totalObstacleControllers)
+        {
+            controller.SetObstacleMoveSpeed(speed);
         }
     }
 

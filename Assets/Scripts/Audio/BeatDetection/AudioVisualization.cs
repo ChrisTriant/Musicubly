@@ -9,7 +9,6 @@ public class AudioVisualizer : MonoBehaviour
     #region Fields
 
     [Header("Audio Settings")]
-    [SerializeField] private AudioSource _audioSource;
     [SerializeField] private BeatDetector _beatDetector;
     [SerializeField] private int _spectrumResolution = 512; // Number of spectrum bands
     [SerializeField] private float _emphasisMultiplier = 10f; // Boosts spectrum intensity
@@ -22,7 +21,6 @@ public class AudioVisualizer : MonoBehaviour
     [SerializeField] private float _maxExtendLength = 3f; // Maximum line extension length
     [SerializeField] private GameObject _lineRendererPrefab;
     [SerializeField] private Transform _spawnParent;
-    [SerializeField] private Gradient _colorGradient;
 
     private LineRenderer[] _lineRenderers;
     private float[] _spectrumData;
@@ -30,7 +28,7 @@ public class AudioVisualizer : MonoBehaviour
 
     #endregion
 
-    #region Unity Methods
+    #region LifeCycle
 
     private void Start()
     {
@@ -56,7 +54,6 @@ public class AudioVisualizer : MonoBehaviour
         _lineLengths = new float[_numberOfSegments];
         _spectrumData = new float[_spectrumResolution];
 
-
         for (int i = 0; i < _numberOfSegments; i++)
         {
             GameObject lineObject = Instantiate(_lineRendererPrefab, _spawnParent);
@@ -72,7 +69,7 @@ public class AudioVisualizer : MonoBehaviour
             lineRenderer.SetPosition(0, startPosition);
             lineRenderer.SetPosition(1, startPosition + direction * _minExtendLength); // Start extended at base radius
 
-            lineRenderer.colorGradient = _colorGradient;
+            lineRenderer.startWidth = Spacing(_radius);
             _lineRenderers[i] = lineRenderer;
         }
     }
@@ -82,7 +79,6 @@ public class AudioVisualizer : MonoBehaviour
     /// </summary>
     private void UpdateSpectrum()
     {
-        //_audioSource.GetSpectrumData(_spectrumData, 0, FFTWindow.BlackmanHarris);
         _spectrumData = _beatDetector.ChannelSpectrums[0];
     }
 
@@ -91,7 +87,6 @@ public class AudioVisualizer : MonoBehaviour
     /// </summary>
     private void UpdateLineRenderers()
     {
-        return;
         int spectrumStep = Mathf.Max(1, _spectrumResolution / _numberOfSegments);
 
         for (int i = 0; i < _numberOfSegments; i++)
@@ -120,22 +115,14 @@ public class AudioVisualizer : MonoBehaviour
             //float t = i / (_lineRenderers.Length - 2f);
             //float a = t * Mathf.PI * 2f;
             //Vector3 direction = new Vector3(Mathf.Cos(a + Mathf.PI / 2), Mathf.Sin(a + Mathf.PI / 2));
-            var extendOffset = _radius + _minExtendLength + _lineLengths[i];
-            Vector3 endPosition = _spawnParent.position + direction * extendOffset;
+            var extendOffset = _minExtendLength + _lineLengths[i];
+            Vector3 endPosition = startPosition + direction * extendOffset;
 
             lineRenderer.SetPosition(1, endPosition);
 
-            float startWidth = Spacing(_radius); // Cache spacing outside the loop if possible
-            float endWidth = extendOffset;
+            float endWidth = _radius + extendOffset;
 
-            lineRenderer.startWidth = startWidth;
             lineRenderer.endWidth = Spacing(endWidth);
-
-            // Adjust gradient color based on extension
-            float colorT = _lineLengths[i] / _maxExtendLength;
-            GradientColorKey[] colorKeys = _colorGradient.colorKeys;
-            lineRenderer.startColor = colorKeys[0].color;
-            lineRenderer.endColor = _colorGradient.Evaluate(colorT);
         }
     }
 

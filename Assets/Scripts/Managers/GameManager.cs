@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
@@ -5,22 +6,28 @@ using UnityEngine;
 
 public class GameManager : MonoBehaviour
 {
+    #region Events
+
+    public static event Action<int> OnScoreChanged;
+    public static event Action OnDefeat;
+    public static event Action OnGameStart;
+    public static event Action OnGamePause;
+    public static event Action OnGameResumed;
+
+    #endregion
+
     #region Fields
 
-    [SerializeField] private ObstacleSpawner _spawner;
+    [SerializeField] private ObstacleManager _obstacleManager;
     [SerializeField] private PlayerController _playerController;
-    [SerializeField] private GameObject StartUI;
-    [SerializeField] private GameObject PauseUI;
-    [SerializeField] private GameObject InGameUI;
-    [SerializeField] private GameObject LoseScreenUI;
-    [SerializeField] private TMP_Text _scoreTextField;
 
     [SerializeField] private float _obstacleSpawningInterval = 2;
     [SerializeField] private float _minObstacleSpeed = 5;
     [SerializeField] private float _obstacleSpeed = 5;
     [SerializeField] private float _maxObstacleSpeed = 10;
     [SerializeField] private float _obstacleSpeedAcceleration = 0.5f;
-    [SerializeField] private bool _isPaused = true;
+
+    private int _score;
 
     private List<int[]> _nextCubeIndices;
 
@@ -31,8 +38,18 @@ public class GameManager : MonoBehaviour
     #region Properties
 
     public static GameManager Instance { get; private set; }
-    public int Score { get; private set; } = 0;
-    public int Level { get; private set; } = 1;
+    public int Score 
+    {
+        get => _score;
+        private set
+        {
+            _score = value;
+            OnScoreChanged?.Invoke(_score);
+        }
+    }
+
+    public bool IsPaused { get; private set; } = true;
+
 
     #endregion
 
@@ -47,59 +64,41 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private void Start()
-    {
-        StartUI.SetActive(true);
-        InGameUI.SetActive(false);
-        PauseUI.SetActive(false);
-        LoseScreenUI.SetActive(false);
-        _obstacleSpeed = _minObstacleSpeed;
-    }
-
     public void StartGame()
     {
         Score = 0;
-        _scoreTextField.text = Score.ToString();
-        Level = 1;
-        _isPaused = false;
-        StartUI.SetActive(false);
-        InGameUI.SetActive(true);
-        PauseUI.SetActive(false);
+        OnGameStart?.Invoke();
+
+        IsPaused = false;
         _nextCubeIndices = new();
 
+        _obstacleSpeed = _minObstacleSpeed;
         _gameCoroutine = StartCoroutine(SpawnObstacleWaves());
     }
 
     public void PauseGame()
     {
-        _isPaused = true;
-        PauseUI.SetActive(true);
-        InGameUI.SetActive(false);
+        IsPaused = true;
+        _obstacleManager.FreezeObstacles();
+        OnGamePause?.Invoke();
     }
 
     public void ResumeGame()
     {
-        _isPaused = false;
-        PauseUI.SetActive(false);
-        InGameUI.SetActive(true);
-
-        var obstacles = FindObjectsOfType<ObstacleController>();
-        foreach (var obstacle in obstacles)
-        {
-            obstacle.SetObstacleMoveSpeed(_obstacleSpeed);
-        }
+        IsPaused = false;
+        _obstacleManager.SetObstacleSpeed(_obstacleSpeed);
+        OnGameResumed?.Invoke();
     }
 
     public void LostGame()
     {
         StopAllObstacles();
-        LoseScreenUI.SetActive(true);
+        OnDefeat?.Invoke();
     }
 
-    public void Restart()
-    {        
-        LoseScreenUI.SetActive(false);
-        _spawner.ResetObstacles();
+    public void RestartGame()
+    {
+        _obstacleManager.ResetObstacles();
         
         StopCoroutine(_gameCoroutine);
         StartGame();
@@ -112,7 +111,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator SpawnObstacleWaves()
     {
         yield return new WaitForSeconds(0.4f);
-        var obstacleController = _spawner.SpawnNewObstacle();
+        var obstacleController = _obstacleManager.SpawnNewObstacle();
         obstacleController.SetObstacleMoveSpeed(_obstacleSpeed);
         var disabledIndices = obstacleController.DisableRandomCubes(OnObstaclePassed);
 
@@ -124,9 +123,9 @@ public class GameManager : MonoBehaviour
 
         while (true)
         {
-            if (!_isPaused)
+            if (!IsPaused)
             {                
-                obstacleController = _spawner.SpawnNewObstacle();
+                obstacleController = _obstacleManager.SpawnNewObstacle();
                 obstacleController.SetObstacleMoveSpeed(_obstacleSpeed);
                 disabledIndices = obstacleController.DisableRandomCubes(OnObstaclePassed);
 
@@ -154,7 +153,6 @@ public class GameManager : MonoBehaviour
     private void OnObstaclePassed()
     {
         Score++;
-        _scoreTextField.text = Score.ToString();
         ReceiveNewIndices();
 
         if (Score % 10 == 0)
@@ -183,11 +181,7 @@ public class GameManager : MonoBehaviour
     private void StopAllObstacles()
     {
         StopCoroutine(_gameCoroutine);
-        var obstacles = FindObjectsOfType<ObstacleController>();
-        foreach (var obstacle in obstacles)
-        {
-            obstacle.SetObstacleMoveSpeed(0);
-        }
+        _obstacleManager.FreezeObstacles();
     }
 
     #endregion
