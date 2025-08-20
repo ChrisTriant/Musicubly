@@ -20,7 +20,7 @@ The game features a custom **beat detection algorithm** that drives both the gam
 
 | Key | Action |
 |-----|---------|
-| `Space` | Rotate cubes |
+| `Space` / `Touch` | Rotate cubes |
 | `Esc` | Pause |
 
 ---
